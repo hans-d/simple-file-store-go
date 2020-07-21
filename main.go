@@ -11,8 +11,7 @@ import (
 )
 
 var (
-	ErrMissingKey    = errors.New("missing key - unable to save data")
-	ErrMissingParent = errors.New("missing parent - no place to save data")
+	ErrMissingKey = errors.New("missing key - unable to save data")
 )
 
 // Logger is a generic logger
@@ -29,20 +28,32 @@ type Logger interface {
 type Driver struct {
 	mutex     sync.Mutex
 	mutexes   map[string]*sync.Mutex
-	dir       string // where files are stored
+	baseDir   string
 	log       Logger
-	marshaler Marshaler // file format
+	marshaler Marshaler
+	placer    Placer
+}
+
+type Placer interface {
+	GetPath(key string) string
+}
+
+type SimplePlacer struct{}
+
+func (p SimplePlacer) GetPath(key string) string {
+	return key
 }
 
 // Options for optional config
 type Options struct {
 	Logger
 	Marshaler
+	Placer
 }
 
 // New creates a new driver at the given location, and returns a *Driver
 // for further interaction. By default will use teh JSONMarshaler.
-func New(dir string, options *Options) (*Driver, error) {
+func New(baseDir string, options *Options) (*Driver, error) {
 
 	if options == nil {
 		options = &Options{}
@@ -53,44 +64,46 @@ func New(dir string, options *Options) (*Driver, error) {
 	if options.Marshaler == nil {
 		options.Marshaler = &JSONMarshaler{}
 	}
-	dir = filepath.Clean(dir)
+	if options.Placer == nil {
+		options.Placer = &SimplePlacer{}
+	}
+	baseDir = filepath.Clean(baseDir)
 
 	driver := Driver{
-		dir:       dir,
+		baseDir:   baseDir,
 		mutexes:   make(map[string]*sync.Mutex),
 		log:       options.Logger,
 		marshaler: options.Marshaler,
+		placer:    options.Placer,
 	}
-	if _, err := os.Stat(dir); err == nil {
-		options.Logger.Debug("Using '%s' (folder already exists)\n", dir)
+	if _, err := os.Stat(baseDir); err == nil {
+		options.Logger.Debug("Using '%s' (folder already exists)\n", baseDir)
 		return &driver, nil
 	}
 
-	options.Logger.Debug("Creating storage folder at '%s'...\n", dir)
-	return &driver, os.MkdirAll(dir, 0755)
+	options.Logger.Debug("Creating storage folder at '%s'...\n", baseDir)
+	return &driver, os.MkdirAll(baseDir, 0755)
 }
 
-// Write the value [v] to the file [key] under [parent], using the
-// marshaler. A lock is held on [parent].
-func (d *Driver) Write(parent, key string, v interface{}) error {
+// Write the value [v] to the [key], using the
+// marshaler.
+func (d *Driver) Write(key string, v interface{}) error {
 
-	if parent == "" {
-		return ErrMissingParent
-	}
 	if key == "" {
 		return ErrMissingKey
 	}
 
-	mutex := d.getOrCreateMutex(parent)
+	mutex := d.getOrCreateMutex(key)
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	return d.writeFile(parent, key, v)
+	return d.writeFile(key, v)
 }
 
-func (d *Driver) writeFile(parent, key string, v interface{}) error {
+func (d *Driver) writeFile(key string, v interface{}) error {
 
-	dir := filepath.Join(d.dir, parent)
+	path := d.placer.GetPath(key)
+	dir := filepath.Join(d.baseDir, filepath.Dir(path))
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
@@ -100,7 +113,7 @@ func (d *Driver) writeFile(parent, key string, v interface{}) error {
 		return err
 	}
 
-	file := filepath.Join(dir, key+d.marshaler.GetFileExtension())
+	file := filepath.Join(d.baseDir, path+d.marshaler.GetFileExtension())
 	tmpFile := file + ".tmp"
 
 	if err := ioutil.WriteFile(tmpFile, data, 0644); err != nil {
@@ -109,22 +122,20 @@ func (d *Driver) writeFile(parent, key string, v interface{}) error {
 	return os.Rename(tmpFile, file)
 }
 
-// Read the content from [key] under [parent] into [v].
-func (d *Driver) Read(parent, key string, v interface{}) error {
+// Read the content from [key] into [v].
+func (d *Driver) Read(key string, v interface{}) error {
 
-	if parent == "" {
-		return ErrMissingParent
-	}
 	if key == "" {
 		return ErrMissingKey
 	}
 
-	return d.readFile(parent, key, v)
+	return d.readFile(key, v)
 }
 
-func (d *Driver) readFile(parent, key string, v interface{}) error {
+func (d *Driver) readFile(key string, v interface{}) error {
 
-	file := filepath.Join(d.dir, parent, key+d.marshaler.GetFileExtension())
+	path := d.placer.GetPath(key)
+	file := filepath.Join(d.baseDir, path+d.marshaler.GetFileExtension())
 
 	data, err := ioutil.ReadFile(file)
 	if err != nil {

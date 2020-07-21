@@ -15,7 +15,7 @@ const testFolder = "./test"
 func TestMain(m *testing.M) {
 	os.RemoveAll(testFolder)
 	code := m.Run()
-	os.RemoveAll(testFolder)
+	// os.RemoveAll(testFolder)
 	os.Exit(code)
 }
 
@@ -55,23 +55,22 @@ func TestWriteAndRead(t *testing.T) {
 		{descr: "yaml", folder: "yaml", options: &Options{Marshaler: &YAMLMarshaler{}}},
 	}
 
-	parent := "simpleread"
-	key := "some-gopher"
+	key := "test/some-gopher"
 
 	for _, tt := range testCases {
-		dataFolder := filepath.Join(testFolder, tt.folder)
-		f, err := New(dataFolder, tt.options)
+		baseDir := filepath.Join(testFolder, tt.folder)
+		f, err := New(baseDir, tt.options)
 
 		if err != nil {
 			t.Errorf("Expected nothing for %s, got %v", tt.descr, err)
 		}
 
-		if err := f.Write(parent, key, Gopher{Type: "Simple"}); err != nil {
+		if err := f.Write(key, Gopher{Type: "Simple"}); err != nil {
 			t.Errorf("Write failed for %s: %s", tt.descr, err.Error())
 		}
 
 		gopher := Gopher{}
-		if err := f.Read(parent, key, &gopher); err != nil {
+		if err := f.Read(key, &gopher); err != nil {
 			t.Errorf("Failed to read for %s: %s", tt.descr, err.Error())
 		}
 		if gopher.Type != "Simple" {
