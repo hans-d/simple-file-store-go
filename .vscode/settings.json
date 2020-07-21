@@ -1,0 +1,10 @@
+{
+    "go.testFlags": [
+        "-v"
+    ],
+    "go.coverageDecorator": {
+        "coveredGutterStyle": "verticalblue",
+        "type": "gutter"
+    },
+    "go.lintTool": "golangci-lint"
+}
